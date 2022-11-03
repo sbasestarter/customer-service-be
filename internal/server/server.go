@@ -114,7 +114,7 @@ func (impl *serverImpl) Talk(server customertalkpb.CustomerTalkService_TalkServe
 		return impl.statusError(codes.Unknown, err)
 	}
 
-	talkID, err := impl.handleTalkStart(server.Context(), u.ID, request)
+	talkID, createTalkFlag, err := impl.handleTalkStart(server.Context(), u.ID, request)
 	if err != nil {
 		logger.WithFields(l.ErrorField(err)).Error("handleTalkStartFailed")
 
@@ -125,7 +125,7 @@ func (impl *serverImpl) Talk(server customertalkpb.CustomerTalkService_TalkServe
 
 	chSendMessage := make(chan *customertalkpb.TalkResponse, 100)
 
-	customer := controller.NewCustomer(uniqueID, talkID, u.ID, chSendMessage)
+	customer := controller.NewCustomer(uniqueID, talkID, createTalkFlag, u.ID, chSendMessage)
 
 	err = impl.controller.InstallCustomer(customer)
 	if err != nil {
@@ -226,7 +226,7 @@ func (impl *serverImpl) customerReceiveRoutine(server customertalkpb.CustomerTal
 }
 
 func (impl *serverImpl) handleTalkStart(ctx context.Context, userID uint64,
-	request *customertalkpb.TalkRequest) (talkID string, err error) {
+	request *customertalkpb.TalkRequest) (talkID string, talkCreateFlag bool, err error) {
 	if request == nil {
 		err = impl.messageError(codes.InvalidArgument, "noRequest")
 
@@ -246,6 +246,8 @@ func (impl *serverImpl) handleTalkStart(ctx context.Context, userID uint64,
 			StartAt:   time.Now().Unix(),
 			CreatorID: userID,
 		})
+
+		talkCreateFlag = true
 
 		return
 	}

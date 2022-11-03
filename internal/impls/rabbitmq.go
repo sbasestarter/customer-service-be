@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 
 	"github.com/sbasestarter/customer-service-be/internal/defs"
 	"github.com/sgostarter/i/l"
@@ -80,8 +81,7 @@ type rabbitMQImpl struct {
 	ob     defs.Observer
 	logger l.Wrapper
 
-	conn    *amqp.Connection
-	channel *amqp.Channel
+	conn *amqp.Connection
 
 	routineMan routineman.RoutineMan
 
@@ -126,7 +126,7 @@ func (impl *rabbitMQImpl) RemoveTrackTalk(talkID string) {
 	}
 
 	select {
-	case impl.chTalkTrackStartRequest <- talkID:
+	case impl.chTalkTrackStopRequest <- talkID:
 	default:
 	}
 }
@@ -136,16 +136,11 @@ func (impl *rabbitMQImpl) SetObserver(ob defs.Observer) {
 }
 
 func (impl *rabbitMQImpl) init(url string) (err error) {
-	impl.conn, err = amqp.Dial(url)
+	impl.conn, err = amqp.DialConfig(url, amqp.Config{
+		ChannelMax: math.MaxInt,
+	})
 	if err != nil {
 		impl.logger.WithFields(l.ErrorField(err)).Error("DialFailed")
-
-		return
-	}
-
-	impl.channel, err = impl.conn.Channel()
-	if err != nil {
-		impl.logger.WithFields(l.ErrorField(err)).Error("ChannelFailed")
 
 		return
 	}
@@ -169,6 +164,13 @@ func (impl *rabbitMQImpl) mainRoutine(ctx context.Context, exiting func() bool) 
 
 	trackTalkMap := make(map[string]*trackTalkData)
 
+	channelSend, err := impl.conn.Channel()
+	if err != nil {
+		impl.logger.WithFields(l.ErrorField(err)).Error("ChannelFailed")
+
+		return
+	}
+
 	for loop {
 		select {
 		case <-ctx.Done():
@@ -177,16 +179,18 @@ func (impl *rabbitMQImpl) mainRoutine(ctx context.Context, exiting func() bool) 
 			break
 		case talkID := <-impl.chTalkTrackStartRequest:
 			if _, ok := trackTalkMap[talkID]; ok {
-				logger.WithFields(l.StringField("talkID", talkID)).Error("TackTalkExists")
+				logger.WithFields(l.StringField("talkID", talkID)).Error("TrackTalkExists")
 
 				continue
 			}
 
 			trackTalkMap[talkID] = &trackTalkData{}
 
+			ret := make(chan error, 2)
 			impl.routineMan.StartRoutine(func(ctx context.Context, exiting func() bool) {
-				impl.trackTalkRoutine(ctx, talkID)
+				impl.trackTalkRoutine(ctx, talkID, ret)
 			}, "trackTalkRoutine")
+			<-ret
 		case talkID := <-impl.chTalkTrackStopRequest:
 			if trackTalk, ok := trackTalkMap[talkID]; ok {
 				if trackTalk.cancel != nil {
@@ -215,11 +219,11 @@ func (impl *rabbitMQImpl) mainRoutine(ctx context.Context, exiting func() bool) 
 			if _, ok := trackTalkMap[sendD.TalkID]; ok {
 				d, _ := json.Marshal(sendD)
 
-				if err := impl.channel.Publish(impl.exchangeName(sendD.TalkID), "", false, false,
+				if err := channelSend.Publish(impl.exchangeName(sendD.TalkID), "", false, false,
 					amqp.Publishing{
 						Body: d,
 					}); err != nil {
-					logger.WithFields(l.ErrorField(err)).Error("PublishFailed")
+					logger.WithFields(l.ErrorField(err), l.StringField("talkID", sendD.TalkID)).Error("PublishFailed")
 				}
 			} else {
 				logger.WithFields(l.StringField("talkID", sendD.TalkID)).Error("TackNotExists")
@@ -232,7 +236,7 @@ func (impl *rabbitMQImpl) exchangeName(talkID string) string {
 	return "talk:" + talkID
 }
 
-func (impl *rabbitMQImpl) trackTalkRoutine(ctx context.Context, talkID string) {
+func (impl *rabbitMQImpl) trackTalkRoutine(ctx context.Context, talkID string, start chan<- error) {
 	logger := impl.logger.WithFields(l.StringField("talkID", talkID), l.StringField(l.RoutineKey,
 		"trackTalkRoutine"))
 
@@ -240,6 +244,7 @@ func (impl *rabbitMQImpl) trackTalkRoutine(ctx context.Context, talkID string) {
 	defer logger.Debug("leave")
 
 	fnQuitWithErrorAndLabel := func(err error, label string) {
+		start <- err
 		select {
 		case impl.chTalkTrackStoppedEvent <- &talkTrackStoppedEventData{
 			talkID: talkID,
@@ -249,7 +254,14 @@ func (impl *rabbitMQImpl) trackTalkRoutine(ctx context.Context, talkID string) {
 		}
 	}
 
-	err := impl.channel.ExchangeDeclare(impl.exchangeName(talkID), "fanout", false, true,
+	channel, err := impl.conn.Channel()
+	if err != nil {
+		fnQuitWithErrorAndLabel(err, "Channel")
+
+		return
+	}
+
+	err = channel.ExchangeDeclare(impl.exchangeName(talkID), "fanout", false, true,
 		false, false, nil)
 	if err != nil {
 		fnQuitWithErrorAndLabel(err, "ExchangeDeclare")
@@ -257,26 +269,28 @@ func (impl *rabbitMQImpl) trackTalkRoutine(ctx context.Context, talkID string) {
 		return
 	}
 
-	q, err := impl.channel.QueueDeclare("", false, true, true, false, nil)
+	q, err := channel.QueueDeclare("", false, true, true, false, nil)
 	if err != nil {
 		fnQuitWithErrorAndLabel(err, "QueueDeclare")
 
 		return
 	}
 
-	err = impl.channel.QueueBind(q.Name, "", impl.exchangeName(talkID), false, nil)
+	err = channel.QueueBind(q.Name, "", impl.exchangeName(talkID), false, nil)
 	if err != nil {
 		fnQuitWithErrorAndLabel(err, "QueueBind")
 
 		return
 	}
 
-	deliveries, err := impl.channel.Consume(q.Name, "", true, false, false, false, nil)
+	deliveries, err := channel.Consume(q.Name, "", true, false, false, false, nil)
 	if err != nil {
 		fnQuitWithErrorAndLabel(err, "Consume")
 
 		return
 	}
+
+	start <- nil
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

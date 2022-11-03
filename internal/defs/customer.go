@@ -8,4 +8,6 @@ type Customer interface {
 	GetUserID() uint64
 	SendMessage(msg *customertalkpb.TalkResponse) error
 	Remove(msg string)
+
+	CreateTalkFlag() bool
 }

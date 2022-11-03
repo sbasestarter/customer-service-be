@@ -5,7 +5,9 @@ go 1.19
 require (
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/godruoyi/go-snowflake v0.0.1
-	github.com/sbasestarter/customer-service-proto v0.0.0-20221026111520-06481a0cd1cb
+	github.com/golang/protobuf v1.5.2
+	github.com/gorilla/websocket v1.4.1
+	github.com/sbasestarter/customer-service-proto v0.0.0-20221103053045-15041f6c5796
 	github.com/sgostarter/i v0.1.12
 	github.com/sgostarter/libconfig v0.0.0-20220806130947-ce83e9abe6a4
 	github.com/sgostarter/libeasygo v0.1.33
@@ -22,7 +24,6 @@ require (
 	github.com/cenkalti/backoff/v4 v4.1.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/desertbit/timer v0.0.0-20180107155436-c41aec40b27f // indirect
-	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0 // indirect
 	github.com/improbable-eng/grpc-web v0.15.0 // indirect

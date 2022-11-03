@@ -6,20 +6,26 @@ import (
 	"github.com/sgostarter/libeasygo/commerr"
 )
 
-func NewCustomer(uniqueID uint64, talkID string, userID uint64, chSendMessage chan *customertalkpb.TalkResponse) defs.Customer {
+func NewCustomer(uniqueID uint64, talkID string, createTalkFlag bool, userID uint64, chSendMessage chan *customertalkpb.TalkResponse) defs.Customer {
 	return &customerImpl{
-		uniqueID:      uniqueID,
-		talkID:        talkID,
-		userID:        userID,
-		chSendMessage: chSendMessage,
+		uniqueID:       uniqueID,
+		talkID:         talkID,
+		createTalkFlag: createTalkFlag,
+		userID:         userID,
+		chSendMessage:  chSendMessage,
 	}
 }
 
 type customerImpl struct {
-	uniqueID      uint64
-	talkID        string
-	userID        uint64
-	chSendMessage chan *customertalkpb.TalkResponse
+	uniqueID       uint64
+	talkID         string
+	createTalkFlag bool
+	userID         uint64
+	chSendMessage  chan *customertalkpb.TalkResponse
+}
+
+func (impl *customerImpl) CreateTalkFlag() bool {
+	return impl.createTalkFlag
 }
 
 func (impl *customerImpl) GetUniqueID() uint64 {

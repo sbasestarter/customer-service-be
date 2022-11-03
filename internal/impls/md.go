@@ -72,12 +72,30 @@ func (impl *mdImpl) OnTalkClose(talkID string) {
 			},
 		})
 
-		impl.sendResponseToServicersForTalk(0, talkID, &customertalkpb.ServiceResponse{
+		resp := &customertalkpb.ServiceResponse{
 			Response: &customertalkpb.ServiceResponse_Close{
 				Close: &customertalkpb.ServiceTalkClose{},
 			},
+		}
+		impl.send4AllServicers(func(servicer defs.Servicer) error {
+			return servicer.SendMessage(resp)
 		})
 	})
+}
+
+func (impl *mdImpl) send4AllServicers(do func(defs.Servicer) error) {
+	for servicerID, ss := range impl.servicers {
+		for uniqueID, servicer := range ss {
+			if err := do(servicer); err != nil {
+				servicer.Remove("SendFailed")
+
+				delete(ss, uniqueID)
+			}
+		}
+		if len(ss) == 0 {
+			delete(impl.servicers, servicerID)
+		}
+	}
 }
 
 func (impl *mdImpl) OnServicerAttachMessage(talkID string, servicerID uint64) {
@@ -89,39 +107,40 @@ func (impl *mdImpl) OnServicerAttachMessage(talkID string, servicerID uint64) {
 			return
 		}
 
-		for _, s := range impl.servicers[servicerID] {
-			if err := s.SendMessage(&customertalkpb.ServiceResponse{
-				Response: &customertalkpb.ServiceResponse_Attach{
-					Attach: &customertalkpb.ServiceAttachTalkResponse{
-						Talk:              vo.TalkInfoRDb2Pb(talkInfo),
-						AttachedServiceId: servicerID,
-					},
+		resp := &customertalkpb.ServiceResponse{
+			Response: &customertalkpb.ServiceResponse_Attach{
+				Attach: &customertalkpb.ServiceAttachTalkResponse{
+					Talk:              vo.TalkInfoRDb2Pb(talkInfo),
+					AttachedServiceId: servicerID,
 				},
-			}); err != nil {
-				impl.logger.WithFields(l.ErrorField(err)).Error("SendMessageFailed")
-
-				return
-			}
+			},
 		}
+		impl.send4AllServicers(func(servicer defs.Servicer) error {
+			return servicer.SendMessage(resp)
+		})
 	})
 }
 
 func (impl *mdImpl) OnServicerDetachMessage(talkID string, servicerID uint64) {
-	impl.mrRunner.Post(func() {
-		for _, s := range impl.servicers[servicerID] {
-			if err := s.SendMessage(&customertalkpb.ServiceResponse{
-				Response: &customertalkpb.ServiceResponse_Detach{
-					Detach: &customertalkpb.ServiceDetachTalkResponse{
-						TalkId:            talkID,
-						DetachedServiceId: servicerID,
-					},
-				},
-			}); err != nil {
-				impl.logger.WithFields(l.ErrorField(err)).Error("SendMessageFailed")
+	talkInfo, err := impl.mdi.GetM().GetTalkInfo(context.TODO(), talkID)
+	if err != nil {
+		impl.logger.WithFields(l.ErrorField(err)).Error("GetTalkInfoFailed")
 
-				return
-			}
+		return
+	}
+
+	impl.mrRunner.Post(func() {
+		resp := &customertalkpb.ServiceResponse{
+			Response: &customertalkpb.ServiceResponse_Detach{
+				Detach: &customertalkpb.ServiceDetachTalkResponse{
+					Talk:              vo.TalkInfoRDb2Pb(talkInfo),
+					DetachedServiceId: servicerID,
+				},
+			},
 		}
+		impl.send4AllServicers(func(servicer defs.Servicer) error {
+			return servicer.SendMessage(resp)
+		})
 	})
 }
 
@@ -173,6 +192,10 @@ func (impl *mdImpl) InstallCustomer(ctx context.Context, customer defs.Customer)
 	}
 
 	impl.customers[customer.GetTalkID()][customer.GetUniqueID()] = customer
+
+	if customer.CreateTalkFlag() {
+		impl.mdi.SendServiceDetachMessage(customer.GetTalkID(), 0)
+	}
 
 	go func(logger l.Wrapper) {
 		messages, errG := impl.mdi.GetM().GetTalkMessages(context.TODO(), customer.GetTalkID(), 0, 0)

@@ -487,7 +487,7 @@ func (md *mainData) ServicerDetachTalk(ctx context.Context, talkID string, servi
 		if err := s.SendMessage(&customertalkpb.ServiceResponse{
 			Response: &customertalkpb.ServiceResponse_Detach{
 				Detach: &customertalkpb.ServiceDetachTalkResponse{
-					TalkId:            talkID,
+					Talk:              vo.TalkInfoRDb2Pb(md.pendingTalkInfos[talkID]),
 					DetachedServiceId: servicer.GetUserID(),
 				},
 			},
