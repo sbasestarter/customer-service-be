@@ -5,6 +5,9 @@ import (
 	"time"
 
 	"github.com/sbasestarter/customer-service-be/config"
+	"github.com/sbasestarter/customer-service-be/internal/controller"
+	"github.com/sbasestarter/customer-service-be/internal/impls"
+	"github.com/sbasestarter/customer-service-be/internal/model"
 	"github.com/sbasestarter/customer-service-be/internal/server"
 	"github.com/sbasestarter/customer-service-be/internal/user"
 	"github.com/sbasestarter/customer-service-proto/gens/customertalkpb"
@@ -25,7 +28,7 @@ func main() {
 	}
 
 	grpcCfg := &servicetoolset.GRPCServerConfig{
-		Address:           cfg.Listen,
+		Address:           cfg.CustomerListen,
 		TLSConfig:         tlsConfig,
 		KeepAliveDuration: time.Minute * 10,
 	}
@@ -42,14 +45,21 @@ func main() {
 	}
 
 	userCenter := user.NewAnonymousCenter("1", time.Hour*24*31)
+
 	ctxOut, _ := userCenter.Login(context.TODO(), "zjz")
 	logger.Info(metadata.FromOutgoingContext(ctxOut))
 
-	grpcServer := server.NewServer(userCenter, logger)
+	modelEx := impls.NewModelEx(model.NewMongoModel(&cfg.MongoConfig, logger))
+	mdi := impls.NewCustomerRabbitMQMDI(cfg.RabbitMQURL, modelEx, logger)
+
+	customerMD := impls.NewCustomerMD(mdi, logger)
+
+	customerController := controller.NewCustomerController(customerMD, modelEx, logger)
+
+	grpcCustomerServer := server.NewCustomerServer(customerController, userCenter, logger)
 
 	err = s.Start(func(s *grpc.Server) error {
-		customertalkpb.RegisterCustomerTalkServiceServer(s, grpcServer)
-		customertalkpb.RegisterServiceTalkServiceServer(s, grpcServer)
+		customertalkpb.RegisterCustomerTalkServiceServer(s, grpcCustomerServer)
 
 		return nil
 	})
@@ -59,6 +69,6 @@ func main() {
 		return
 	}
 
-	logger.Info("grpc server listen on: ", cfg.Listen)
+	logger.Info("grpc server listen on: ", cfg.CustomerListen)
 	s.Wait()
 }

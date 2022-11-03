@@ -15,6 +15,9 @@ type Config struct {
 	Listen        string                            `yaml:"Listen"`
 	GRPCTLSConfig *servicetoolset.GRPCTlsFileConfig `yaml:"GRPCTLSConfig"`
 
+	CustomerListen string `yaml:"CustomerListen"`
+	ServicerListen string `yaml:"ServicerListen"`
+
 	MongoConfig MongoConfig `yaml:"MongoConfig"`
 	RabbitMQURL string      `yaml:"RabbitMQURL"`
 }

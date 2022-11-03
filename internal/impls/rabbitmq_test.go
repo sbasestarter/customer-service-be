@@ -16,6 +16,10 @@ type obImpl struct {
 	id string
 }
 
+func (impl *obImpl) OnTalkCreate(talkID string) {
+	impl.t.Log(impl.id+" => OnTalkCreate:", talkID)
+}
+
 func (impl *obImpl) OnMessageIncoming(senderUniqueID uint64, talkID string, message *defs.TalkMessageW) {
 	impl.t.Log(impl.id+" => OnMessageIncoming:", senderUniqueID, talkID, message.Text)
 }
@@ -35,11 +39,11 @@ func (impl *obImpl) OnServicerDetachMessage(talkID string, servicerID uint64) {
 func TestRabbitMQImpl(t *testing.T) {
 	mq1, err := NewRabbitMQ(UtMqURL, l.NewConsoleLoggerWrapper())
 	assert.Nil(t, err)
-	mq1.SetObserver(&obImpl{t: t, id: "mq1"})
+	mq1.SetServicerObserver(&obImpl{t: t, id: "mq1"})
 
 	mq2, err := NewRabbitMQ(UtMqURL, l.NewConsoleLoggerWrapper())
 	assert.Nil(t, err)
-	mq2.SetObserver(&obImpl{t: t, id: "mq2"})
+	mq2.SetServicerObserver(&obImpl{t: t, id: "mq2"})
 
 	talk1 := "t1"
 	talk2 := "t2"

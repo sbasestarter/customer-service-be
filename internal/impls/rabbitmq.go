@@ -17,7 +17,8 @@ type RabbitMQ interface {
 	AddTrackTalk(talkID string) error
 	RemoveTrackTalk(talkID string)
 	SendData(data *mqData) error
-	SetObserver(ob defs.Observer)
+	SetCustomerObserver(ob defs.CustomerObserver)
+	SetServicerObserver(ob defs.ServicerObserver)
 }
 
 func NewRabbitMQ(url string, logger l.Wrapper) (RabbitMQ, error) {
@@ -48,6 +49,10 @@ type mqDataMessage struct {
 	Message        *defs.TalkMessageW
 }
 
+type mqDataTalkCreate struct {
+	TalkID string
+}
+
 type mqDataTalkClose struct {
 }
 
@@ -62,6 +67,7 @@ type mqDataServicerDetach struct {
 type mqData struct {
 	TalkID         string                `json:"TalkID,omitempty"`
 	Message        *mqDataMessage        `json:"Message,omitempty"`
+	TalkCreate     *mqDataTalkCreate     `json:"TalkCreate,omitempty"`
 	TalkClose      *mqDataTalkClose      `json:"TalkClose,omitempty"`
 	ServicerAttach *mqDataServicerAttach `json:"ServicerAttach,omitempty"`
 	ServicerDetach *mqDataServicerDetach `json:"ServicerDetach,omitempty"`
@@ -78,8 +84,9 @@ type talkTrackStoppedEventData struct {
 }
 
 type rabbitMQImpl struct {
-	ob     defs.Observer
-	logger l.Wrapper
+	customerOb defs.CustomerObserver
+	servicerOb defs.ServicerObserver
+	logger     l.Wrapper
 
 	conn *amqp.Connection
 
@@ -131,8 +138,12 @@ func (impl *rabbitMQImpl) RemoveTrackTalk(talkID string) {
 	}
 }
 
-func (impl *rabbitMQImpl) SetObserver(ob defs.Observer) {
-	impl.ob = ob
+func (impl *rabbitMQImpl) SetCustomerObserver(ob defs.CustomerObserver) {
+	impl.customerOb = ob
+}
+
+func (impl *rabbitMQImpl) SetServicerObserver(ob defs.ServicerObserver) {
+	impl.servicerOb = ob
 }
 
 func (impl *rabbitMQImpl) init(url string) (err error) {
@@ -216,17 +227,13 @@ func (impl *rabbitMQImpl) mainRoutine(ctx context.Context, exiting func() bool) 
 				logger.WithFields(l.StringField("talkID", d.talkID)).Error("TrackNotExists")
 			}
 		case sendD := <-impl.chSend:
-			if _, ok := trackTalkMap[sendD.TalkID]; ok {
-				d, _ := json.Marshal(sendD)
+			d, _ := json.Marshal(sendD)
 
-				if err := channelSend.Publish(impl.exchangeName(sendD.TalkID), "", false, false,
-					amqp.Publishing{
-						Body: d,
-					}); err != nil {
-					logger.WithFields(l.ErrorField(err), l.StringField("talkID", sendD.TalkID)).Error("PublishFailed")
-				}
-			} else {
-				logger.WithFields(l.StringField("talkID", sendD.TalkID)).Error("TackNotExists")
+			if err = channelSend.Publish(impl.exchangeName(sendD.TalkID), "", false, false,
+				amqp.Publishing{
+					Body: d,
+				}); err != nil {
+				logger.WithFields(l.ErrorField(err), l.StringField("talkID", sendD.TalkID)).Error("PublishFailed")
 			}
 		}
 	}
@@ -323,13 +330,27 @@ func (impl *rabbitMQImpl) trackTalkRoutine(ctx context.Context, talkID string, s
 			}
 
 			if obj.Message != nil {
-				impl.ob.OnMessageIncoming(obj.Message.SenderUniqueID, obj.TalkID, obj.Message.Message)
+				if impl.customerOb != nil {
+					impl.customerOb.OnMessageIncoming(obj.Message.SenderUniqueID, obj.TalkID, obj.Message.Message)
+				}
+
+				if impl.servicerOb != nil {
+					impl.servicerOb.OnMessageIncoming(obj.Message.SenderUniqueID, obj.TalkID, obj.Message.Message)
+				}
 			} else if obj.TalkClose != nil {
-				impl.ob.OnTalkClose(obj.TalkID)
+				if impl.customerOb != nil {
+					impl.customerOb.OnTalkClose(obj.TalkID)
+				}
+
+				if impl.servicerOb != nil {
+					impl.servicerOb.OnTalkClose(obj.TalkID)
+				}
+			} else if obj.TalkCreate != nil {
+				impl.servicerOb.OnTalkCreate(obj.TalkID)
 			} else if obj.ServicerAttach != nil {
-				impl.ob.OnServicerAttachMessage(obj.TalkID, obj.ServicerAttach.ServicerID)
+				impl.servicerOb.OnServicerAttachMessage(obj.TalkID, obj.ServicerAttach.ServicerID)
 			} else if obj.ServicerDetach != nil {
-				impl.ob.OnServicerDetachMessage(obj.TalkID, obj.ServicerDetach.ServicerID)
+				impl.servicerOb.OnServicerDetachMessage(obj.TalkID, obj.ServicerDetach.ServicerID)
 			} else {
 				logger.Error("UnknownMqData")
 			}
