@@ -40,7 +40,7 @@ type customerMDImpl struct {
 
 func (impl *customerMDImpl) OnMessageIncoming(senderUniqueID uint64, talkID string, message *defs.TalkMessageW) {
 	impl.mrRunner.Post(func() {
-		impl.sendResponseToCustomers(senderUniqueID, talkID, &customertalkpb.TalkResponse{
+		impl.sendResponseToCustomers(0, talkID, &customertalkpb.TalkResponse{
 			Talk: &customertalkpb.TalkResponse_Message{
 				Message: vo.TalkMessageDB2Pb(message),
 			},

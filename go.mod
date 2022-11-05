@@ -7,7 +7,7 @@ require (
 	github.com/godruoyi/go-snowflake v0.0.1
 	github.com/golang/protobuf v1.5.2
 	github.com/gorilla/websocket v1.4.1
-	github.com/sbasestarter/customer-service-proto v0.0.0-20221103053045-15041f6c5796
+	github.com/sbasestarter/customer-service-proto v0.0.0-20221105000103-22bff7ea1874
 	github.com/sgostarter/i v0.1.12
 	github.com/sgostarter/libconfig v0.0.0-20220806130947-ce83e9abe6a4
 	github.com/sgostarter/libeasygo v0.1.33

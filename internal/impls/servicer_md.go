@@ -39,7 +39,7 @@ type servicerMDImpl struct {
 
 func (impl *servicerMDImpl) OnMessageIncoming(senderUniqueID uint64, talkID string, message *defs.TalkMessageW) {
 	impl.mrRunner.Post(func() {
-		impl.sendResponseToServicersForTalk(senderUniqueID, talkID, &customertalkpb.ServiceResponse{
+		impl.sendResponseToServicersForTalk(0, talkID, &customertalkpb.ServiceResponse{
 			Response: &customertalkpb.ServiceResponse_Message{
 				Message: &customertalkpb.ServiceTalkMessageResponse{
 					TalkId:  talkID,
@@ -351,9 +351,6 @@ func (impl *servicerMDImpl) sendAttachedTalks(ctx context.Context, servicer defs
 
 	for _, talkInfo := range talkInfos {
 		talkMessages, _ := impl.mdi.GetM().GetTalkMessages(ctx, talkInfo.TalkID, 0, 0)
-		if len(talkMessages) <= 0 {
-			continue
-		}
 		talkIDs = append(talkIDs, talkInfo.TalkID)
 
 		talks = append(talks, &customertalkpb.ServiceTalkInfoAndMessages{

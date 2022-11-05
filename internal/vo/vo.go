@@ -1,6 +1,8 @@
 package vo
 
 import (
+	"fmt"
+
 	"github.com/sbasestarter/customer-service-be/internal/defs"
 	"github.com/sbasestarter/customer-service-proto/gens/customertalkpb"
 )
@@ -97,6 +99,7 @@ func TalkMessageDB2Pb(message *defs.TalkMessageW) *customertalkpb.TalkMessage {
 	pbMessage := &customertalkpb.TalkMessage{
 		At:              uint64(message.At),
 		CustomerMessage: message.CustomerMessage,
+		User:            fmt.Sprintf("User %d", message.SenderID),
 	}
 
 	switch message.Type {
