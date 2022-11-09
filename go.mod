@@ -7,7 +7,7 @@ require (
 	github.com/godruoyi/go-snowflake v0.0.1
 	github.com/golang/protobuf v1.5.2
 	github.com/gorilla/websocket v1.4.1
-	github.com/sbasestarter/customer-service-proto v0.0.0-20221105000103-22bff7ea1874
+	github.com/sbasestarter/customer-service-proto v0.0.4
 	github.com/sgostarter/i v0.1.12
 	github.com/sgostarter/libconfig v0.0.0-20220806130947-ce83e9abe6a4
 	github.com/sgostarter/libeasygo v0.1.33
@@ -16,6 +16,7 @@ require (
 	github.com/streadway/amqp v0.0.0-20190827072141-edfb9018d271
 	github.com/stretchr/testify v1.7.1
 	go.mongodb.org/mongo-driver v1.10.3
+	go.uber.org/atomic v1.9.0
 	google.golang.org/grpc v1.50.1
 	google.golang.org/protobuf v1.28.1
 )
@@ -40,7 +41,6 @@ require (
 	github.com/xdg-go/scram v1.1.1 // indirect
 	github.com/xdg-go/stringprep v1.0.3 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20181117223130-1be2e3e5546d // indirect
-	go.uber.org/atomic v1.9.0 // indirect
 	golang.org/x/crypto v0.0.0-20220622213112-05595931fe9d // indirect
 	golang.org/x/net v0.0.0-20211112202133-69e39bad7dc2 // indirect
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c // indirect

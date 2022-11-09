@@ -18,7 +18,7 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
-func NewCustomerServer(controller *controller.CustomerController, userCenter user.Center, logger l.Wrapper) customertalkpb.CustomerTalkServiceServer {
+func NewCustomerServer(controller *controller.CustomerController, userCenter user.AnonymousCenter, logger l.Wrapper) customertalkpb.CustomerTalkServiceServer {
 	if logger == nil {
 		logger = l.NewNopLoggerWrapper()
 	}
@@ -37,10 +37,52 @@ type customerServerImpl struct {
 	customertalkpb.UnimplementedCustomerTalkServiceServer
 
 	logger     l.Wrapper
-	userCenter user.Center
+	userCenter user.AnonymousCenter
 	model      defs.ModelEx
 
 	controller *controller.CustomerController
+}
+
+func (impl *customerServerImpl) CheckToken(ctx context.Context, _ *customertalkpb.CheckTokenRequest) (*customertalkpb.CheckTokenResponse, error) {
+	u, err := impl.userCenter.ExtractUserInfoFromGRPCContext(ctx)
+	if err != nil {
+		impl.logger.WithFields(l.ErrorField(err)).Error("ExtractUserInfoFromGRPCContextFailed")
+
+		return &customertalkpb.CheckTokenResponse{
+			Valid: false,
+		}, nil
+	}
+
+	token, _ := impl.userCenter.NewToken(u)
+	fmt.Println("update token:", token)
+
+	return &customertalkpb.CheckTokenResponse{
+		Valid:    true,
+		UserName: u.UserName,
+		NewToken: token,
+	}, nil
+}
+
+func (impl *customerServerImpl) CreateToken(ctx context.Context, request *customertalkpb.CreateTokenRequest) (*customertalkpb.CreateTokenResponse, error) {
+	userName := request.GetUserName()
+	if userName == "" {
+		userName = "客人"
+	}
+
+	token, expires, err := impl.userCenter.LoginAndGetToken(ctx, userName)
+	if err != nil {
+		impl.logger.WithFields(l.ErrorField(err)).Error("LoginFailed")
+
+		return nil, err
+	}
+
+	fmt.Println("newToken:", token)
+
+	return &customertalkpb.CreateTokenResponse{
+		Token:    token,
+		UserName: userName,
+		Expires:  expires,
+	}, nil
 }
 
 func (impl *customerServerImpl) QueryTalks(ctx context.Context, request *customertalkpb.QueryTalksRequest) (*customertalkpb.QueryTalksResponse, error) {

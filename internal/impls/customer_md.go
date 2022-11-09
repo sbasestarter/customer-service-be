@@ -128,6 +128,7 @@ func (impl *customerMDImpl) InstallCustomer(ctx context.Context, customer defs.C
 		if errS := customer.SendMessage(&customertalkpb.TalkResponse{
 			Talk: &customertalkpb.TalkResponse_Messages{
 				Messages: &customertalkpb.TalkMessages{
+					TalkId:   customer.GetTalkID(),
 					Messages: pbMessages,
 				},
 			},

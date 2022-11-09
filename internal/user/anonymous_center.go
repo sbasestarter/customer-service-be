@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"crypto/md5" // nolint:gosec
+	"fmt"
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
@@ -14,6 +15,7 @@ import (
 type AnonymousCenter interface {
 	Center
 
+	LoginAndGetToken(ctx context.Context, userName string) (token string, expires int64, err error)
 	Login(ctx context.Context, userName string) (outCtx context.Context, err error)
 }
 
@@ -41,16 +43,39 @@ type anonymousUserClaims struct {
 	jwt.StandardClaims
 }
 
-func (impl *anonymousCenterImpl) Login(ctx context.Context, userName string) (outCtx context.Context, err error) {
-	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, anonymousUserClaims{
+func (impl *anonymousCenterImpl) LoginAndGetToken(_ context.Context, userName string) (token string, expires int64, err error) {
+	expires = time.Now().Add(impl.expireDuration).Unix()
+
+	token, err = jwt.NewWithClaims(jwt.SigningMethodHS256, anonymousUserClaims{
 		Info: Info{
 			ID:       snowflake.ID(),
+			UserName: userName,
+		},
+		StandardClaims: jwt.StandardClaims{
+			ExpiresAt: expires,
+		},
+	}).SignedString(impl.secKey)
+	if err != nil {
+		return
+	}
+
+	return
+}
+
+func (impl *anonymousCenterImpl) generateToken(uid uint64, userName string) (string, error) {
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, anonymousUserClaims{
+		Info: Info{
+			ID:       uid,
 			UserName: userName,
 		},
 		StandardClaims: jwt.StandardClaims{
 			ExpiresAt: time.Now().Add(impl.expireDuration).Unix(),
 		},
 	}).SignedString(impl.secKey)
+}
+
+func (impl *anonymousCenterImpl) Login(ctx context.Context, userName string) (outCtx context.Context, err error) {
+	token, err := impl.generateToken(snowflake.ID(), userName)
 	if err != nil {
 		return
 	}
@@ -69,7 +94,7 @@ func (impl *anonymousCenterImpl) ExtractUserInfoFromGRPCContext(ctx context.Cont
 	}
 
 	tokens := md.Get("token")
-	if len(tokens) == 0 {
+	if len(tokens) == 0 || tokens[0] == "" {
 		err = commerr.ErrUnauthenticated
 
 		return
@@ -86,9 +111,16 @@ func (impl *anonymousCenterImpl) ExtractUserInfoFromGRPCContext(ctx context.Cont
 			ID:       anonymousClaims.ID,
 			UserName: anonymousClaims.UserName,
 		}
+
+		fmt.Println("token:", tokens[0])
+		fmt.Println("uid:", anonymousClaims.ID)
 	} else {
 		err = commerr.ErrUnauthenticated
 	}
 
 	return
+}
+
+func (impl *anonymousCenterImpl) NewToken(userInfo *Info) (string, error) {
+	return impl.generateToken(userInfo.ID, userInfo.UserName)
 }

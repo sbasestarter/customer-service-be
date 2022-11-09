@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 
@@ -100,17 +101,6 @@ func wS(gRpcClient customertalkpb.ServiceTalkServiceClient, logger l.Wrapper) fu
 			}
 		}
 
-		md := metadata.New(map[string]string{
-			"token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJJRCI6MTg0NTc0MDMwODQzMjY4MzAwOCwiVXNlck5hbWUiOiJ6anoiLCJleHAiOjE2NjkwOTUxODF9.3qqeSKcQxrr3CagAVQ79_sCSnBMmTM8u_k5jFHIjJUc",
-		})
-
-		stream, err := gRpcClient.Service(metadata.NewOutgoingContext(context.TODO(), md))
-		if err != nil {
-			logger.WithFields(l.ErrorField(err)).Error("GRPCServiceFailed")
-
-			return
-		}
-
 		c, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			logger.WithFields(l.ErrorField(err)).Error("UpgradeFailed")
@@ -119,6 +109,32 @@ func wS(gRpcClient customertalkpb.ServiceTalkServiceClient, logger l.Wrapper) fu
 		}
 
 		defer c.Close()
+
+		_, msg, err := c.ReadMessage()
+		if err != nil {
+			logger.WithFields(l.ErrorField(err)).Error("ReadTokenMessageFailed")
+
+			return
+		}
+
+		kv := make(map[string]string)
+		err = json.Unmarshal(msg, &kv)
+		if err != nil {
+			logger.WithFields(l.ErrorField(err)).Error("UnmarshalTokenFailed")
+
+			return
+		}
+
+		md := metadata.New(map[string]string{
+			"token": kv["token"],
+		})
+
+		stream, err := gRpcClient.Service(metadata.NewOutgoingContext(context.TODO(), md))
+		if err != nil {
+			logger.WithFields(l.ErrorField(err)).Error("GRPCServiceFailed")
+
+			return
+		}
 
 		go gRPCReceiveRoutine(stream, c, logger)
 
@@ -129,7 +145,7 @@ func wS(gRpcClient customertalkpb.ServiceTalkServiceClient, logger l.Wrapper) fu
 func main() {
 	cfg := config.GetWSConfig()
 
-	conn, err := clienttoolset.DialGRPC(cfg.GRPCClientConfig, nil)
+	conn, err := clienttoolset.DialGRPC(cfg.ServicerGRPCClientConfig, nil)
 	if err != nil {
 		cfg.Logger.Fatal(err)
 	}
@@ -140,5 +156,5 @@ func main() {
 
 	http.HandleFunc("/ws", wS(gRpcClient, cfg.Logger))
 
-	log.Fatal(http.ListenAndServe(cfg.Listen, nil))
+	log.Fatal(http.ListenAndServe(cfg.ServicerListen, nil))
 }

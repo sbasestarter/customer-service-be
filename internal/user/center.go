@@ -9,4 +9,5 @@ type Info struct {
 
 type Center interface {
 	ExtractUserInfoFromGRPCContext(ctx context.Context) (userInfo *Info, err error)
+	NewToken(userInfo *Info) (string, error)
 }

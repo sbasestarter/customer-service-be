@@ -12,8 +12,11 @@ import (
 type WSConfig struct {
 	Logger l.Wrapper `yaml:"-"`
 
-	Listen           string                          `yaml:"Listen"`
-	GRPCClientConfig *clienttoolset.GRPCClientConfig `yaml:"GRPCClientConfig"`
+	CustomerListen           string                          `yaml:"CustomerListen"`
+	CustomerGRPCClientConfig *clienttoolset.GRPCClientConfig `yaml:"CustomerGRPCClientConfig"`
+
+	ServicerListen           string                          `yaml:"ServicerListen"`
+	ServicerGRPCClientConfig *clienttoolset.GRPCClientConfig `yaml:"ServicerGRPCClientConfig"`
 }
 
 var (
