@@ -11,14 +11,13 @@ import (
 	"github.com/sbasestarter/customer-service-be/internal/defs"
 	"github.com/sbasestarter/customer-service-be/internal/impls"
 	"github.com/sbasestarter/customer-service-be/internal/model"
-	"github.com/sbasestarter/customer-service-be/internal/user"
 	"github.com/sbasestarter/customer-service-be/internal/vo"
 	"github.com/sbasestarter/customer-service-proto/gens/customertalkpb"
 	"github.com/sgostarter/i/l"
 	"google.golang.org/grpc/codes"
 )
 
-func NewCustomerServer(controller *controller.CustomerController, userCenter user.AnonymousCenter, logger l.Wrapper) customertalkpb.CustomerTalkServiceServer {
+func NewCustomerServer(controller *controller.CustomerController, userTokenHelper defs.UserTokenHelper, logger l.Wrapper) customertalkpb.CustomerTalkServiceServer {
 	if logger == nil {
 		logger = l.NewNopLoggerWrapper()
 	}
@@ -26,74 +25,32 @@ func NewCustomerServer(controller *controller.CustomerController, userCenter use
 	m := impls.NewModelEx(model.NewMongoModel(&config.GetConfig().MongoConfig, logger))
 
 	return &customerServerImpl{
-		logger:     logger,
-		controller: controller,
-		userCenter: userCenter,
-		model:      m,
+		logger:          logger,
+		controller:      controller,
+		userTokenHelper: userTokenHelper,
+		model:           m,
 	}
 }
 
 type customerServerImpl struct {
 	customertalkpb.UnimplementedCustomerTalkServiceServer
 
-	logger     l.Wrapper
-	userCenter user.AnonymousCenter
-	model      defs.ModelEx
+	logger          l.Wrapper
+	userTokenHelper defs.UserTokenHelper
+	model           defs.ModelEx
 
 	controller *controller.CustomerController
 }
 
-func (impl *customerServerImpl) CheckToken(ctx context.Context, _ *customertalkpb.CheckTokenRequest) (*customertalkpb.CheckTokenResponse, error) {
-	u, err := impl.userCenter.ExtractUserInfoFromGRPCContext(ctx)
-	if err != nil {
-		impl.logger.WithFields(l.ErrorField(err)).Error("ExtractUserInfoFromGRPCContextFailed")
-
-		return &customertalkpb.CheckTokenResponse{
-			Valid: false,
-		}, nil
-	}
-
-	token, _ := impl.userCenter.NewToken(u)
-	fmt.Println("update token:", token)
-
-	return &customertalkpb.CheckTokenResponse{
-		Valid:    true,
-		UserName: u.UserName,
-		NewToken: token,
-	}, nil
-}
-
-func (impl *customerServerImpl) CreateToken(ctx context.Context, request *customertalkpb.CreateTokenRequest) (*customertalkpb.CreateTokenResponse, error) {
-	userName := request.GetUserName()
-	if userName == "" {
-		userName = "客人"
-	}
-
-	token, expires, err := impl.userCenter.LoginAndGetToken(ctx, userName)
-	if err != nil {
-		impl.logger.WithFields(l.ErrorField(err)).Error("LoginFailed")
-
-		return nil, err
-	}
-
-	fmt.Println("newToken:", token)
-
-	return &customertalkpb.CreateTokenResponse{
-		Token:    token,
-		UserName: userName,
-		Expires:  expires,
-	}, nil
-}
-
 func (impl *customerServerImpl) QueryTalks(ctx context.Context, request *customertalkpb.QueryTalksRequest) (*customertalkpb.QueryTalksResponse, error) {
-	u, err := impl.userCenter.ExtractUserInfoFromGRPCContext(ctx)
+	_, userID, _, err := impl.userTokenHelper.ExtractUserFromGRPCContext(ctx, false)
 	if err != nil {
 		impl.logger.WithFields(l.ErrorField(err)).Error("ExtractUserInfoFromGRPCContextFailed")
 
 		return nil, gRpcError(codes.Unauthenticated, nil)
 	}
 
-	talkInfos, err := impl.model.QueryTalks(ctx, u.ID, 0, "", vo.TaskStatusesMapPb2Db(request.GetStatuses()))
+	talkInfos, err := impl.model.QueryTalks(ctx, userID, 0, "", vo.TaskStatusesMapPb2Db(request.GetStatuses()))
 	if err != nil {
 		impl.logger.WithFields(l.ErrorField(err)).Error("QueryTalksFailed")
 
@@ -110,7 +67,7 @@ func (impl *customerServerImpl) Talk(server customertalkpb.CustomerTalkService_T
 		return gRpcMessageError(codes.InvalidArgument, "noServerStream")
 	}
 
-	u, err := impl.userCenter.ExtractUserInfoFromGRPCContext(server.Context())
+	_, userID, userName, err := impl.userTokenHelper.ExtractUserFromGRPCContext(server.Context(), false)
 	if err != nil {
 		impl.logger.WithFields(l.ErrorField(err)).Error("ExtractUserInfoFromGRPCContextFailed")
 
@@ -120,7 +77,7 @@ func (impl *customerServerImpl) Talk(server customertalkpb.CustomerTalkService_T
 	uniqueID := snowflake.ID()
 
 	logger := impl.logger.WithFields(l.StringField(l.RoutineKey, "Talk"),
-		l.StringField("u", fmt.Sprintf("%d:%s", u.ID, u.UserName)),
+		l.StringField("u", fmt.Sprintf("%d:%s", userID, userName)),
 		l.UInt64Field("uniqueID", uniqueID))
 
 	logger.Debug("enter")
@@ -136,7 +93,7 @@ func (impl *customerServerImpl) Talk(server customertalkpb.CustomerTalkService_T
 		return gRpcError(codes.Unknown, err)
 	}
 
-	talkID, createTalkFlag, err := impl.handleTalkStart(server.Context(), u.ID, request)
+	talkID, createTalkFlag, err := impl.handleTalkStart(server.Context(), userID, userName, request)
 	if err != nil {
 		logger.WithFields(l.ErrorField(err)).Error("handleTalkStartFailed")
 
@@ -147,7 +104,7 @@ func (impl *customerServerImpl) Talk(server customertalkpb.CustomerTalkService_T
 
 	chSendMessage := make(chan *customertalkpb.TalkResponse, 100)
 
-	customer := controller.NewCustomer(uniqueID, talkID, createTalkFlag, u.ID, chSendMessage)
+	customer := controller.NewCustomer(uniqueID, talkID, createTalkFlag, userID, chSendMessage)
 
 	err = impl.controller.InstallCustomer(customer)
 	if err != nil {
@@ -158,7 +115,7 @@ func (impl *customerServerImpl) Talk(server customertalkpb.CustomerTalkService_T
 
 	chTerminal := make(chan error, 2)
 
-	go impl.customerReceiveRoutine(server, customer, u.ID, chTerminal, logger)
+	go impl.customerReceiveRoutine(server, customer, userID, userName, chTerminal, logger)
 
 	loop := true
 
@@ -203,7 +160,7 @@ func (impl *customerServerImpl) Talk(server customertalkpb.CustomerTalkService_T
 //
 //
 
-func (impl *customerServerImpl) handleTalkStart(ctx context.Context, userID uint64,
+func (impl *customerServerImpl) handleTalkStart(ctx context.Context, userID uint64, userName string,
 	request *customertalkpb.TalkRequest) (talkID string, talkCreateFlag bool, err error) {
 	if request == nil {
 		err = gRpcMessageError(codes.InvalidArgument, "noRequest")
@@ -219,10 +176,11 @@ func (impl *customerServerImpl) handleTalkStart(ctx context.Context, userID uint
 		}
 
 		talkID, err = impl.model.CreateTalk(ctx, &defs.TalkInfoW{
-			Status:    defs.TalkStatusOpened,
-			Title:     request.GetCreate().GetTitle(),
-			StartAt:   time.Now().Unix(),
-			CreatorID: userID,
+			Status:          defs.TalkStatusOpened,
+			Title:           request.GetCreate().GetTitle(),
+			StartAt:         time.Now().Unix(),
+			CreatorID:       userID,
+			CreatorUserName: userName,
 		})
 
 		talkCreateFlag = true
@@ -244,7 +202,7 @@ func (impl *customerServerImpl) handleTalkStart(ctx context.Context, userID uint
 }
 
 func (impl *customerServerImpl) customerReceiveRoutine(server customertalkpb.CustomerTalkService_TalkServer,
-	customer defs.Customer, userID uint64, chTerminal chan<- error, logger l.Wrapper) {
+	customer defs.Customer, userID uint64, userName string, chTerminal chan<- error, logger l.Wrapper) {
 	var err error
 
 	var request *customertalkpb.TalkRequest
@@ -264,6 +222,7 @@ func (impl *customerServerImpl) customerReceiveRoutine(server customertalkpb.Cus
 			dbMessage.At = time.Now().Unix()
 			dbMessage.CustomerMessage = true
 			dbMessage.SenderID = userID
+			dbMessage.SenderUserName = userName
 
 			err = impl.model.AddTalkMessage(server.Context(), customer.GetTalkID(), dbMessage)
 			if err != nil {

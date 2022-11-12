@@ -42,7 +42,7 @@ func (impl *customerMDImpl) OnMessageIncoming(senderUniqueID uint64, talkID stri
 	impl.mrRunner.Post(func() {
 		impl.sendResponseToCustomers(0, talkID, &customertalkpb.TalkResponse{
 			Talk: &customertalkpb.TalkResponse_Message{
-				Message: vo.TalkMessageDB2Pb(message),
+				Message: vo.TalkMessageDB2Pb4Customer(message),
 			},
 		})
 	})
@@ -122,7 +122,7 @@ func (impl *customerMDImpl) InstallCustomer(ctx context.Context, customer defs.C
 		var pbMessages []*customertalkpb.TalkMessage
 
 		for _, message := range messages {
-			pbMessages = append(pbMessages, vo.TalkMessageDB2Pb(&message.TalkMessageW))
+			pbMessages = append(pbMessages, vo.TalkMessageDB2Pb4Customer(&message.TalkMessageW))
 		}
 
 		if errS := customer.SendMessage(&customertalkpb.TalkResponse{

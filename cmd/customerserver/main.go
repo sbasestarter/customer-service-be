@@ -4,8 +4,6 @@ import (
 	"time"
 
 	"github.com/sbasestarter/bizinters/userinters"
-	"github.com/sbasestarter/bizmongolib/mongolib"
-	userpassauthenticator "github.com/sbasestarter/bizmongolib/user/authenticator/userpass"
 	"github.com/sbasestarter/customer-service-be/config"
 	"github.com/sbasestarter/customer-service-be/internal/controller"
 	"github.com/sbasestarter/customer-service-be/internal/impls"
@@ -14,7 +12,6 @@ import (
 	"github.com/sbasestarter/customer-service-proto/gens/customertalkpb"
 	"github.com/sbasestarter/userlib"
 	memoryauthingdatastorage "github.com/sbasestarter/userlib/authingdatastorage/memory"
-	userpassmanager "github.com/sbasestarter/userlib/manager/userpass"
 	"github.com/sbasestarter/userlib/policy/single"
 	memorystatuscontroller "github.com/sbasestarter/userlib/statuscontroller/memory"
 	"github.com/sgostarter/libservicetoolset/servicetoolset"
@@ -33,7 +30,7 @@ func main() {
 	}
 
 	grpcCfg := &servicetoolset.GRPCServerConfig{
-		Address:           cfg.ServicerListen,
+		Address:           cfg.CustomerListen,
 		TLSConfig:         tlsConfig,
 		KeepAliveDuration: time.Minute * 10,
 	}
@@ -49,29 +46,21 @@ func main() {
 		return
 	}
 
-	mongoCli, mongoOptions, err := mongolib.InitMongo(cfg.UserMongoDSN)
-	if err != nil {
-		logger.Fatal(err)
-
-		return
-	}
-	servicerUserCenter := userlib.NewUserCenter(cfg.ServicerTokenSecret, single.NewPolicy(userinters.AuthMethodNameUserPassword),
+	customerUserCenter := userlib.NewUserCenter(cfg.CustomerTokenSecret, single.NewPolicy(userinters.AuthMethodNameAnonymous),
 		memorystatuscontroller.NewStatusController(), memoryauthingdatastorage.NewMemoryAuthingDataStorage(), logger)
-	serviceUserPassModel := userpassauthenticator.NewMongoUserPasswordModel(mongoCli, mongoOptions.Auth.AuthSource, "servicer_users", logger)
-	servicerManager := userpassmanager.NewManager(cfg.ServicerPasswordSecret, serviceUserPassModel)
-	servicerUserTokenHelper := impls.NewLocalServicerUserTokenHelper(servicerUserCenter, servicerManager)
+	customerUserTokenHelper := impls.NewLocalCustomerUserTokenHelper(customerUserCenter)
 
 	modelEx := impls.NewModelEx(model.NewMongoModel(&cfg.MongoConfig, logger))
-	mdi := impls.NewServicerRabbitMQMDI(cfg.RabbitMQURL, modelEx, logger)
+	mdi := impls.NewCustomerRabbitMQMDI(cfg.RabbitMQURL, modelEx, logger)
 
-	servicerMD := impls.NewServicerMD(mdi, logger)
+	customerMD := impls.NewCustomerMD(mdi, logger)
 
-	servicerController := controller.NewServicerController(servicerMD, modelEx, logger)
+	customerController := controller.NewCustomerController(customerMD, modelEx, logger)
 
-	grpcServicerServer := server.NewServicerServer(servicerController, servicerUserTokenHelper, logger)
+	grpcCustomerServer := server.NewCustomerServer(customerController, customerUserTokenHelper, logger)
 
 	err = s.Start(func(s *grpc.Server) error {
-		customertalkpb.RegisterServiceTalkServiceServer(s, grpcServicerServer)
+		customertalkpb.RegisterCustomerTalkServiceServer(s, grpcCustomerServer)
 
 		return nil
 	})
@@ -81,6 +70,6 @@ func main() {
 		return
 	}
 
-	logger.Info("grpc server listen on: ", cfg.ServicerListen)
+	logger.Info("grpc server listen on: ", cfg.CustomerListen)
 	s.Wait()
 }

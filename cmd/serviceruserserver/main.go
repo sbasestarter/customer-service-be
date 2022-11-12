@@ -7,9 +7,7 @@ import (
 	"github.com/sbasestarter/bizmongolib/mongolib"
 	userpassauthenticator "github.com/sbasestarter/bizmongolib/user/authenticator/userpass"
 	"github.com/sbasestarter/customer-service-be/config"
-	"github.com/sbasestarter/customer-service-be/internal/controller"
 	"github.com/sbasestarter/customer-service-be/internal/impls"
-	"github.com/sbasestarter/customer-service-be/internal/model"
 	"github.com/sbasestarter/customer-service-be/internal/server"
 	"github.com/sbasestarter/customer-service-proto/gens/customertalkpb"
 	"github.com/sbasestarter/userlib"
@@ -33,7 +31,7 @@ func main() {
 	}
 
 	grpcCfg := &servicetoolset.GRPCServerConfig{
-		Address:           cfg.ServicerListen,
+		Address:           cfg.ServicerUserListen,
 		TLSConfig:         tlsConfig,
 		KeepAliveDuration: time.Minute * 10,
 	}
@@ -55,23 +53,17 @@ func main() {
 
 		return
 	}
+
 	servicerUserCenter := userlib.NewUserCenter(cfg.ServicerTokenSecret, single.NewPolicy(userinters.AuthMethodNameUserPassword),
 		memorystatuscontroller.NewStatusController(), memoryauthingdatastorage.NewMemoryAuthingDataStorage(), logger)
 	serviceUserPassModel := userpassauthenticator.NewMongoUserPasswordModel(mongoCli, mongoOptions.Auth.AuthSource, "servicer_users", logger)
 	servicerManager := userpassmanager.NewManager(cfg.ServicerPasswordSecret, serviceUserPassModel)
 	servicerUserTokenHelper := impls.NewLocalServicerUserTokenHelper(servicerUserCenter, servicerManager)
 
-	modelEx := impls.NewModelEx(model.NewMongoModel(&cfg.MongoConfig, logger))
-	mdi := impls.NewServicerRabbitMQMDI(cfg.RabbitMQURL, modelEx, logger)
-
-	servicerMD := impls.NewServicerMD(mdi, logger)
-
-	servicerController := controller.NewServicerController(servicerMD, modelEx, logger)
-
-	grpcServicerServer := server.NewServicerServer(servicerController, servicerUserTokenHelper, logger)
+	grpcServicerUserServer := server.NewServicerUserServer(servicerManager, servicerUserCenter, servicerUserTokenHelper)
 
 	err = s.Start(func(s *grpc.Server) error {
-		customertalkpb.RegisterServiceTalkServiceServer(s, grpcServicerServer)
+		customertalkpb.RegisterServicerUserServicerServer(s, grpcServicerUserServer)
 
 		return nil
 	})
@@ -81,6 +73,6 @@ func main() {
 		return
 	}
 
-	logger.Info("grpc server listen on: ", cfg.ServicerListen)
+	logger.Info("grpc server listen on: ", cfg.ServicerUserListen)
 	s.Wait()
 }

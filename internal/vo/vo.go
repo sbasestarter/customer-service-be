@@ -2,7 +2,6 @@ package vo
 
 import (
 	"fmt"
-
 	"github.com/sbasestarter/customer-service-be/internal/defs"
 	"github.com/sbasestarter/customer-service-proto/gens/customertalkpb"
 )
@@ -49,11 +48,12 @@ func TalkInfoRDb2Pb(talkInfo *defs.TalkInfoR) *customertalkpb.TalkInfo {
 	}
 
 	return &customertalkpb.TalkInfo{
-		TalkId:     talkInfo.TalkID,
-		Status:     TaskStatusMapDB2Pb(talkInfo.Status),
-		Title:      talkInfo.Title,
-		StartedAt:  uint64(talkInfo.StartAt),
-		FinishedAt: uint64(talkInfo.FinishedAt),
+		TalkId:       talkInfo.TalkID,
+		Status:       TaskStatusMapDB2Pb(talkInfo.Status),
+		Title:        talkInfo.Title,
+		StartedAt:    uint64(talkInfo.StartAt),
+		FinishedAt:   uint64(talkInfo.FinishedAt),
+		CustomerName: talkInfo.CreatorUserName,
 	}
 }
 
@@ -91,7 +91,29 @@ func TalkMessageWPb2Db(message *customertalkpb.TalkMessageW) *defs.TalkMessageW 
 	return dbMessage
 }
 
-func TalkMessageDB2Pb(message *defs.TalkMessageW) *customertalkpb.TalkMessage {
+func TalkMessageDB2Pb4Customer(message *defs.TalkMessageW) *customertalkpb.TalkMessage {
+	pbMessage := talkMessageDB2Pb(message)
+	if pbMessage != nil {
+		if pbMessage.CustomerMessage {
+			pbMessage.User = "您"
+		} else {
+			pbMessage.User = "客服"
+		}
+	}
+
+	return pbMessage
+}
+
+func TalkMessageDB2Pb4Servicer(message *defs.TalkMessageW) *customertalkpb.TalkMessage {
+	pbMessage := talkMessageDB2Pb(message)
+	if pbMessage != nil {
+		pbMessage.User = fmt.Sprintf("%s[%d]", pbMessage.User, message.SenderID)
+	}
+
+	return pbMessage
+}
+
+func talkMessageDB2Pb(message *defs.TalkMessageW) *customertalkpb.TalkMessage {
 	if message == nil {
 		return nil
 	}
@@ -99,7 +121,7 @@ func TalkMessageDB2Pb(message *defs.TalkMessageW) *customertalkpb.TalkMessage {
 	pbMessage := &customertalkpb.TalkMessage{
 		At:              uint64(message.At),
 		CustomerMessage: message.CustomerMessage,
-		User:            fmt.Sprintf("User %d", message.SenderID),
+		User:            message.SenderUserName,
 	}
 
 	switch message.Type {
@@ -124,7 +146,7 @@ func TalkMessagesRDb2Pb(messages []*defs.TalkMessageR) []*customertalkpb.TalkMes
 	pbMessages := make([]*customertalkpb.TalkMessage, 0, len(messages))
 
 	for _, message := range messages {
-		pbMessages = append(pbMessages, TalkMessageDB2Pb(&message.TalkMessageW))
+		pbMessages = append(pbMessages, TalkMessageDB2Pb4Servicer(&message.TalkMessageW))
 	}
 
 	return pbMessages

@@ -13,6 +13,7 @@ type TalkMessageW struct {
 	CustomerMessage bool            `bson:"CustomerMessage"`
 	Type            TalkMessageType `bson:"Type"`
 	SenderID        uint64          `bson:"SenderID"`
+	SenderUserName  string          `bson:"SenderUserName"`
 	Text            string          `bson:"Text,omitempty"`
 	Data            []byte          `bson:"Data,omitempty"`
 }

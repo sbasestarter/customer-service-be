@@ -3,6 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"log"
+	"net/http"
+
 	"github.com/golang/protobuf/proto"
 	"github.com/gorilla/websocket"
 	"github.com/sbasestarter/customer-service-be/config"
@@ -10,9 +14,7 @@ import (
 	"github.com/sgostarter/i/l"
 	"github.com/sgostarter/libservicetoolset/clienttoolset"
 	"google.golang.org/grpc/metadata"
-	"io"
-	"log"
-	"net/http"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -63,6 +65,10 @@ func gRPCReceiveRoutine(stream customertalkpb.CustomerTalkService_TalkClient, co
 		resp, err := stream.Recv()
 		if err != nil {
 			logger.WithFields(l.ErrorField(err)).Error("ReceiveFailed")
+
+			if s, ok := status.FromError(err); ok {
+				_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(int(s.Code()), s.Message()))
+			}
 
 			break
 		}
@@ -146,7 +152,7 @@ func wS(gRpcClient customertalkpb.CustomerTalkServiceClient, logger l.Wrapper) f
 	}
 }
 
-func checkHandler(gRpcClient customertalkpb.CustomerTalkServiceClient, logger l.Wrapper) func(w http.ResponseWriter, r *http.Request) {
+func checkHandler(gRpcClient customertalkpb.CustomerUserServicerClient, logger l.Wrapper) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		md := metadata.New(map[string]string{
 			"token": r.Header.Get(httpTokenHeaderKey),
@@ -166,7 +172,7 @@ func checkHandler(gRpcClient customertalkpb.CustomerTalkServiceClient, logger l.
 	}
 }
 
-func createHandler(gRpcClient customertalkpb.CustomerTalkServiceClient, logger l.Wrapper) func(w http.ResponseWriter, r *http.Request) {
+func createHandler(gRpcClient customertalkpb.CustomerUserServicerClient, logger l.Wrapper) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 
@@ -228,19 +234,40 @@ func listTalkHandler(gRpcClient customertalkpb.CustomerTalkServiceClient, logger
 func main() {
 	cfg := config.GetWSConfig()
 
-	conn, err := clienttoolset.DialGRPC(cfg.CustomerGRPCClientConfig, nil)
+	//
+	//
+	//
+
+	talkConn, err := clienttoolset.DialGRPC(cfg.CustomerGRPCClientConfig, nil)
 	if err != nil {
 		cfg.Logger.Fatal(err)
 	}
 
-	defer conn.Close()
+	defer talkConn.Close()
 
-	gRpcClient := customertalkpb.NewCustomerTalkServiceClient(conn)
+	gRpcTalkClient := customertalkpb.NewCustomerTalkServiceClient(talkConn)
 
-	http.HandleFunc("/checkToken", checkHandler(gRpcClient, cfg.Logger))
-	http.HandleFunc("/createToken", createHandler(gRpcClient, cfg.Logger))
-	http.HandleFunc("/listTalk", listTalkHandler(gRpcClient, cfg.Logger))
-	http.HandleFunc("/ws", wS(gRpcClient, cfg.Logger))
+	//
+	//
+	//
+
+	userConn, err := clienttoolset.DialGRPC(cfg.CustomerUserGRPCClientConfig, nil)
+	if err != nil {
+		cfg.Logger.Fatal(err)
+	}
+
+	defer userConn.Close()
+
+	gRpcUserClient := customertalkpb.NewCustomerUserServicerClient(userConn)
+
+	//
+	//
+	//
+
+	http.HandleFunc("/checkToken", checkHandler(gRpcUserClient, cfg.Logger))
+	http.HandleFunc("/createToken", createHandler(gRpcUserClient, cfg.Logger))
+	http.HandleFunc("/listTalk", listTalkHandler(gRpcTalkClient, cfg.Logger))
+	http.HandleFunc("/ws", wS(gRpcTalkClient, cfg.Logger))
 
 	log.Fatal(http.ListenAndServe(cfg.CustomerListen, nil))
 }

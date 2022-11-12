@@ -7,14 +7,17 @@ require (
 	github.com/godruoyi/go-snowflake v0.0.1
 	github.com/golang/protobuf v1.5.2
 	github.com/gorilla/websocket v1.4.1
-	github.com/sbasestarter/customer-service-proto v0.0.4
+	github.com/sbasestarter/bizinters v0.0.0-20221110133957-3b904f49ce7f
+	github.com/sbasestarter/bizmongolib v0.0.0-20221111041737-b64ad80f1a29
+	github.com/sbasestarter/customer-service-proto v0.0.8
+	github.com/sbasestarter/userlib v0.0.0-20221110134955-fd084a2e5900
 	github.com/sgostarter/i v0.1.12
 	github.com/sgostarter/libconfig v0.0.0-20220806130947-ce83e9abe6a4
 	github.com/sgostarter/libeasygo v0.1.33
 	github.com/sgostarter/liblogrus v0.0.9
 	github.com/sgostarter/libservicetoolset v0.0.30
 	github.com/streadway/amqp v0.0.0-20190827072141-edfb9018d271
-	github.com/stretchr/testify v1.7.1
+	github.com/stretchr/testify v1.8.1
 	go.mongodb.org/mongo-driver v1.10.3
 	go.uber.org/atomic v1.9.0
 	google.golang.org/grpc v1.50.1
@@ -31,8 +34,10 @@ require (
 	github.com/kelseyhightower/envconfig v1.4.0 // indirect
 	github.com/klauspost/compress v1.13.6 // indirect
 	github.com/montanaflynn/stats v0.0.0-20171201202039-1bf9dbcd8cbe // indirect
+	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/rogpeppe/go-internal v1.9.0 // indirect
 	github.com/rs/cors v1.7.0 // indirect
 	github.com/sgostarter/librediscovery v0.0.6 // indirect
 	github.com/sirupsen/logrus v1.8.1 // indirect

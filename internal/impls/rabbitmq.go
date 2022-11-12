@@ -195,7 +195,7 @@ func (impl *rabbitMQImpl) dialRoutine(ctx context.Context, exiting func() bool) 
 
 	chConnBroken := make(chan *amqp.Error)
 
-	fnDialConnection := func() (conn *amqp.Connection, err error) {
+	fnDialConnection := func(closeNotifier chan *amqp.Error) (conn *amqp.Connection, err error) {
 		logger.Debug("StartDialConnection")
 		conn, err = amqp.DialConfig(impl.mqURL, amqp.Config{
 			ChannelMax: math.MaxInt,
@@ -206,7 +206,7 @@ func (impl *rabbitMQImpl) dialRoutine(ctx context.Context, exiting func() bool) 
 			return
 		}
 
-		conn.NotifyClose(chConnBroken)
+		conn.NotifyClose(closeNotifier)
 
 		logger.Debug("SuccessDialConnection")
 
@@ -233,7 +233,7 @@ func (impl *rabbitMQImpl) dialRoutine(ctx context.Context, exiting func() bool) 
 				break
 			}
 
-			conn, err = fnDialConnection()
+			conn, err = fnDialConnection(chConnBroken)
 			if err != nil {
 				checkTicker.Reset(tickerRetryDuration)
 
@@ -246,8 +246,10 @@ func (impl *rabbitMQImpl) dialRoutine(ctx context.Context, exiting func() bool) 
 			case impl.chConnDialSuccess <- conn:
 			default:
 			}
-		case connErr := <-chConnBroken:
+		case connErr, _ := <-chConnBroken:
 			logger.WithFields(l.StringField("desc", impl.mqErrorDesc(connErr))).Error("ConnBroken")
+
+			chConnBroken = make(chan *amqp.Error)
 
 			if conn != nil {
 				if conn.IsClosed() {
@@ -544,6 +546,9 @@ func (impl *rabbitMQImpl) trackTalkRoutine(ctx context.Context, talkID string, s
 			logger.Info("SuccessTrackTalkSetup")
 		case mqError := <-brokenNotifier:
 			logger.WithFields(l.StringField("desc", impl.mqErrorDesc(mqError))).Error("channelBroken")
+
+			brokenNotifier = make(chan *amqp.Error)
+
 			deliveries = nil
 			checkTicker.Reset(tickerRetryDuration)
 		case d := <-deliveries:

@@ -10,14 +10,13 @@ import (
 	"github.com/sbasestarter/customer-service-be/internal/defs"
 	"github.com/sbasestarter/customer-service-be/internal/impls"
 	"github.com/sbasestarter/customer-service-be/internal/model"
-	"github.com/sbasestarter/customer-service-be/internal/user"
 	"github.com/sbasestarter/customer-service-be/internal/vo"
 	"github.com/sbasestarter/customer-service-proto/gens/customertalkpb"
 	"github.com/sgostarter/i/l"
 	"google.golang.org/grpc/codes"
 )
 
-func NewServicerServer(controller *controller.ServicerController, userCenter user.Center, logger l.Wrapper) customertalkpb.ServiceTalkServiceServer {
+func NewServicerServer(controller *controller.ServicerController, userTokenHelper defs.UserTokenHelper, logger l.Wrapper) customertalkpb.ServiceTalkServiceServer {
 	if logger == nil {
 		logger = l.NewNopLoggerWrapper()
 	}
@@ -25,19 +24,19 @@ func NewServicerServer(controller *controller.ServicerController, userCenter use
 	m := impls.NewModelEx(model.NewMongoModel(&config.GetConfig().MongoConfig, logger))
 
 	return &servicerServerImpl{
-		logger:     logger,
-		controller: controller,
-		userCenter: userCenter,
-		model:      m,
+		logger:          logger,
+		controller:      controller,
+		userTokenHelper: userTokenHelper,
+		model:           m,
 	}
 }
 
 type servicerServerImpl struct {
 	customertalkpb.UnimplementedServiceTalkServiceServer
 
-	logger     l.Wrapper
-	userCenter user.Center
-	model      defs.ModelEx
+	logger          l.Wrapper
+	userTokenHelper defs.UserTokenHelper
+	model           defs.ModelEx
 
 	controller *controller.ServicerController
 }
@@ -49,7 +48,7 @@ func (impl *servicerServerImpl) Service(server customertalkpb.ServiceTalkService
 		return gRpcMessageError(codes.InvalidArgument, "noServerStream")
 	}
 
-	u, err := impl.userCenter.ExtractUserInfoFromGRPCContext(server.Context())
+	_, userID, userName, err := impl.userTokenHelper.ExtractUserFromGRPCContext(server.Context(), false)
 	if err != nil {
 		return gRpcError(codes.Unauthenticated, err)
 	}
@@ -57,7 +56,7 @@ func (impl *servicerServerImpl) Service(server customertalkpb.ServiceTalkService
 	uniqueID := snowflake.ID()
 
 	logger := impl.logger.WithFields(l.StringField(l.RoutineKey, "Service"),
-		l.StringField("u", fmt.Sprintf("%d:%s", u.ID, u.UserName)),
+		l.StringField("u", fmt.Sprintf("%d:%s", userID, userName)),
 		l.UInt64Field("uniqueID", uniqueID))
 
 	logger.Debug("enter")
@@ -68,7 +67,7 @@ func (impl *servicerServerImpl) Service(server customertalkpb.ServiceTalkService
 
 	chSendMessage := make(chan *customertalkpb.ServiceResponse, 100)
 
-	servicer := controller.NewServicer(u.ID, uniqueID, chSendMessage)
+	servicer := controller.NewServicer(userID, uniqueID, chSendMessage)
 
 	err = impl.controller.InstallServicer(servicer)
 	if err != nil {
@@ -79,7 +78,7 @@ func (impl *servicerServerImpl) Service(server customertalkpb.ServiceTalkService
 
 	chTerminal := make(chan error, 2)
 
-	go impl.serverReceiveRoutine(server, servicer, u.ID, chTerminal, logger)
+	go impl.serverReceiveRoutine(server, servicer, userID, userName, chTerminal, logger)
 
 	loop := true
 
@@ -125,7 +124,7 @@ func (impl *servicerServerImpl) Service(server customertalkpb.ServiceTalkService
 //
 
 func (impl *servicerServerImpl) serverReceiveRoutine(server customertalkpb.ServiceTalkService_ServiceServer,
-	servicer defs.Servicer, userID uint64, chTerminal chan<- error, logger l.Wrapper) {
+	servicer defs.Servicer, userID uint64, userName string, chTerminal chan<- error, logger l.Wrapper) {
 	var err error
 
 	var request *customertalkpb.ServiceRequest
@@ -167,6 +166,7 @@ func (impl *servicerServerImpl) serverReceiveRoutine(server customertalkpb.Servi
 			dbMessage.At = time.Now().Unix()
 			dbMessage.CustomerMessage = false
 			dbMessage.SenderID = userID
+			dbMessage.SenderUserName = userName
 
 			err = impl.model.AddTalkMessage(server.Context(), message.GetTalkId(), dbMessage)
 			if err != nil {

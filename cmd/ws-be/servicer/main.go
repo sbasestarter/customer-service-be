@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 
@@ -12,7 +13,10 @@ import (
 	"github.com/sbasestarter/customer-service-proto/gens/customertalkpb"
 	"github.com/sgostarter/i/l"
 	"github.com/sgostarter/libservicetoolset/clienttoolset"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 func wsReceive(conn *websocket.Conn, stream customertalkpb.ServiceTalkService_ServiceClient, logger l.Wrapper) {
@@ -59,6 +63,11 @@ func gRPCReceiveRoutine(stream customertalkpb.ServiceTalkService_ServiceClient, 
 		resp, err := stream.Recv()
 		if err != nil {
 			logger.WithFields(l.ErrorField(err)).Error("ReceiveFailed")
+			if s, ok := status.FromError(err); ok {
+				if s.Code() == codes.Unauthenticated {
+					_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(int(s.Code()), s.Message()))
+				}
+			}
 
 			break
 		}
@@ -142,19 +151,95 @@ func wS(gRpcClient customertalkpb.ServiceTalkServiceClient, logger l.Wrapper) fu
 	}
 }
 
+type loginData struct {
+	UserName string `json:"user_name"`
+	Password string `json:"password"`
+}
+
+type loginDataResponse struct {
+	Token    string `json:"token"`
+	UserName string `json:"user_name"`
+}
+
+func loginHandler(gRpcClient customertalkpb.ServicerUserServicerClient, logger l.Wrapper) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
+		d, err := io.ReadAll(r.Body)
+		if err != nil {
+			logger.WithFields(l.ErrorField(err)).Error("ReadAllFailed")
+			w.WriteHeader(http.StatusInternalServerError)
+
+			return
+		}
+
+		var loginD loginData
+		err = json.Unmarshal(d, &loginD)
+		if err != nil {
+			logger.WithFields(l.ErrorField(err)).Error("UnmarshalFailed")
+			w.WriteHeader(http.StatusBadRequest)
+
+			return
+		}
+
+		resp, err := gRpcClient.Login(r.Context(), &customertalkpb.LoginRequest{
+			UserName: loginD.UserName,
+			Password: loginD.Password,
+		})
+		if err != nil {
+			logger.WithFields(l.ErrorField(err)).Error("LoginFailed")
+			w.WriteHeader(http.StatusInternalServerError)
+
+			return
+		}
+
+		ldResp := &loginDataResponse{
+			Token:    resp.Token,
+			UserName: resp.UserName,
+		}
+
+		d, _ = json.Marshal(ldResp)
+
+		_, _ = w.Write(d)
+	}
+}
+
 func main() {
 	cfg := config.GetWSConfig()
 
-	conn, err := clienttoolset.DialGRPC(cfg.ServicerGRPCClientConfig, nil)
+	//
+	//
+	//
+
+	talkConn, err := clienttoolset.DialGRPC(cfg.ServicerGRPCClientConfig, []grpc.DialOption{
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(1024 * 1024 * 1024)),
+	})
 	if err != nil {
 		cfg.Logger.Fatal(err)
 	}
 
-	defer conn.Close()
+	defer talkConn.Close()
 
-	gRpcClient := customertalkpb.NewServiceTalkServiceClient(conn)
+	gRpcTalkClient := customertalkpb.NewServiceTalkServiceClient(talkConn)
 
-	http.HandleFunc("/ws", wS(gRpcClient, cfg.Logger))
+	//
+	//
+	//
+	userConn, err := clienttoolset.DialGRPC(cfg.ServicerUserGRPCClientConfig, nil)
+	if err != nil {
+		cfg.Logger.Fatal(err)
+	}
+
+	defer userConn.Close()
+
+	gRpcUserClient := customertalkpb.NewServicerUserServicerClient(userConn)
+
+	//
+	//
+	//
+
+	http.HandleFunc("/login", loginHandler(gRpcUserClient, cfg.Logger))
+	http.HandleFunc("/ws", wS(gRpcTalkClient, cfg.Logger))
 
 	log.Fatal(http.ListenAndServe(cfg.ServicerListen, nil))
 }

@@ -15,11 +15,19 @@ type Config struct {
 	Listen        string                            `yaml:"Listen"`
 	GRPCTLSConfig *servicetoolset.GRPCTlsFileConfig `yaml:"GRPCTLSConfig"`
 
-	CustomerListen string `yaml:"CustomerListen"`
-	ServicerListen string `yaml:"ServicerListen"`
+	CustomerListen     string `yaml:"CustomerListen"`
+	CustomerUserListen string `yaml:"CustomerUserListen"`
+	ServicerListen     string `yaml:"ServicerListen"`
+	ServicerUserListen string `yaml:"ServicerUserListen"`
 
 	MongoConfig MongoConfig `yaml:"MongoConfig"`
 	RabbitMQURL string      `yaml:"RabbitMQURL"`
+
+	UserMongoDSN string `yaml:"UserMongoDSN"`
+
+	CustomerTokenSecret    string `yaml:"CustomerTokenSecret"`
+	ServicerTokenSecret    string `yaml:"ServicerTokenSecret"`
+	ServicerPasswordSecret string `yaml:"ServicerPasswordSecret"`
 }
 
 type MongoConfig struct {

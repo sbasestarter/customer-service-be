@@ -1,20 +1,20 @@
 package main
 
 import (
-	"context"
 	"time"
 
+	"github.com/sbasestarter/bizinters/userinters"
 	"github.com/sbasestarter/customer-service-be/config"
-	"github.com/sbasestarter/customer-service-be/internal/controller"
 	"github.com/sbasestarter/customer-service-be/internal/impls"
-	"github.com/sbasestarter/customer-service-be/internal/model"
 	"github.com/sbasestarter/customer-service-be/internal/server"
-	"github.com/sbasestarter/customer-service-be/internal/user"
 	"github.com/sbasestarter/customer-service-proto/gens/customertalkpb"
+	"github.com/sbasestarter/userlib"
+	memoryauthingdatastorage "github.com/sbasestarter/userlib/authingdatastorage/memory"
+	"github.com/sbasestarter/userlib/policy/single"
+	memorystatuscontroller "github.com/sbasestarter/userlib/statuscontroller/memory"
 	"github.com/sgostarter/libservicetoolset/servicetoolset"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
-	"google.golang.org/grpc/metadata"
 )
 
 func main() {
@@ -28,7 +28,7 @@ func main() {
 	}
 
 	grpcCfg := &servicetoolset.GRPCServerConfig{
-		Address:           cfg.CustomerListen,
+		Address:           cfg.CustomerUserListen,
 		TLSConfig:         tlsConfig,
 		KeepAliveDuration: time.Minute * 10,
 	}
@@ -44,22 +44,13 @@ func main() {
 		return
 	}
 
-	userCenter := user.NewAnonymousCenter("1", time.Hour*24*31)
-
-	ctxOut, _ := userCenter.Login(context.TODO(), "zjz")
-	logger.Info(metadata.FromOutgoingContext(ctxOut))
-
-	modelEx := impls.NewModelEx(model.NewMongoModel(&cfg.MongoConfig, logger))
-	mdi := impls.NewCustomerRabbitMQMDI(cfg.RabbitMQURL, modelEx, logger)
-
-	customerMD := impls.NewCustomerMD(mdi, logger)
-
-	customerController := controller.NewCustomerController(customerMD, modelEx, logger)
-
-	grpcCustomerServer := server.NewCustomerServer(customerController, userCenter, logger)
+	customerUserCenter := userlib.NewUserCenter(cfg.CustomerTokenSecret, single.NewPolicy(userinters.AuthMethodNameAnonymous),
+		memorystatuscontroller.NewStatusController(), memoryauthingdatastorage.NewMemoryAuthingDataStorage(), logger)
+	customerUserTokenHelper := impls.NewLocalCustomerUserTokenHelper(customerUserCenter)
+	grpcCustomerUserServer := server.NewCustomerUserServer(customerUserCenter, customerUserTokenHelper)
 
 	err = s.Start(func(s *grpc.Server) error {
-		customertalkpb.RegisterCustomerTalkServiceServer(s, grpcCustomerServer)
+		customertalkpb.RegisterCustomerUserServicerServer(s, grpcCustomerUserServer)
 
 		return nil
 	})
@@ -69,6 +60,6 @@ func main() {
 		return
 	}
 
-	logger.Info("grpc server listen on: ", cfg.CustomerListen)
+	logger.Info("grpc server listen on: ", cfg.CustomerUserListen)
 	s.Wait()
 }

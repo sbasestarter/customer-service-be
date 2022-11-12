@@ -43,7 +43,7 @@ func (impl *servicerMDImpl) OnMessageIncoming(senderUniqueID uint64, talkID stri
 			Response: &customertalkpb.ServiceResponse_Message{
 				Message: &customertalkpb.ServiceTalkMessageResponse{
 					TalkId:  talkID,
-					Message: vo.TalkMessageDB2Pb(message),
+					Message: vo.TalkMessageDB2Pb4Servicer(message),
 				},
 			},
 		})
@@ -76,7 +76,9 @@ func (impl *servicerMDImpl) OnTalkClose(talkID string) {
 	impl.mrRunner.Post(func() {
 		resp := &customertalkpb.ServiceResponse{
 			Response: &customertalkpb.ServiceResponse_Close{
-				Close: &customertalkpb.ServiceTalkClose{},
+				Close: &customertalkpb.ServiceTalkClose{
+					TalkId: talkID,
+				},
 			},
 		}
 
